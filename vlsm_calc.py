@@ -30,6 +30,15 @@ def get_oct_cidr(cidr):
         i = i-8
     return octets
 
+def get_cidr_from_mask(oct):
+        mask_array=oct.split(".")
+        octet=[]
+        cidr = 0
+        for part in mask_array:
+            binary = bin(int(part))[2:]
+            cidr += binary.count('1')
+        return cidr
+
 def op_oct(oct1,op,oct2):
     new_oct=[]
     for i in range(0,4):

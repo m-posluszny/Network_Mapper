@@ -1,6 +1,6 @@
 import nmap
 import netifaces
-from VLSM_Subnets_Calculator.vlsm_calc import *
+from vlsm_calc import op_oct,get_oct_ip,show_oct,get_cidr_from_mask
 import platform
 import socket
 import subprocess
