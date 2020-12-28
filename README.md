@@ -1,6 +1,6 @@
-# VLSM-Subnets-Calculator
+# Network Mapper
 
-Just a simple vlsm calculator
+Just an example of autmating nmap together with vlsm calculating
   
  ```python
 usage: vlsm.py [-h] ip_with_cidr hosts_amounts [hosts_amounts ...]
