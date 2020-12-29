@@ -1,5 +1,5 @@
 from vlsm_calc import op_oct,get_oct_ip,show_oct,get_cidr_from_mask
-from ipaddress import IPv4Network
+from ipaddress import IPv4Network, IPv4Address
 import nmap
 import socket
 import netifaces
@@ -10,73 +10,109 @@ class NetworkMapper:
 
     def __init__(self,iface):
         self.iface = iface
+        self.nm = nmap.PortScanner()
 
-    def basic_scan(self,addresses):
-        nm = nmap.PortScanner()
-        nm.scan(addresses,arguments="-sL")
-        print("\n*",nm.command_line())
-        names_counter = 0
-        print("DNS mapping result")
-        for host in nm.all_hosts():
-            hostname = nm[host].hostname()
+    def dns_map(self,addresses):
+        self.nm = nmap.PortScanner()
+        self.nm.scan(addresses,arguments="-sL")
+        dns_map = {}
+        for host in self.nm.all_hosts():
+            hostname = self.nm[host].hostname()
             ip = host
-            if hostname == '':
-                hostname = "no_hostname"
-            else:
-                names_counter+=1
-                print(ip," - ", hostname)
-        print("Hostname mapped:",names_counter)
+            if hostname != '':
+                dns_map[ip]=hostname
+        return dns_map
 
-        nm.scan(addresses,arguments="-sn")
-        print("\n*",nm.command_line())
+    def active_map(self,addresses):
+        self.nm.scan(addresses,arguments="-sn")
         active_hosts=[]
-        print("Scanning active hosts")
         with open("active_hosts.txt","w") as f:
-            for host in nm.all_hosts():
-                is_active = nm[host].state()
+            for host in self.nm.all_hosts():
+                is_active = self.nm[host].state()
                 ip = host
                 if is_active:
                     f.write(ip+"\n")
                     active_hosts.append(ip)
-                    print(ip)
-        print("Active count :",len(active_hosts))
+        return active_hosts, "-iL ./active_hosts.txt"
 
-        nm.scan("-iL ./active_hosts.txt",arguments="-sS")
-        print("\n*",nm.command_line())
-        print("Port scan")
+    def port_scan(self,addresses):
+        self.nm.scan(addresses,arguments="-sS")
         unfiltered_hosts= []
-        for host in active_hosts:
-            print(" Address :",host)
-            for proto in nm[host].all_protocols():
-                print('  Protocol : ',proto)
-                lport = nm[host][proto].keys()
+        for host in self.nm.all_hosts():
+            for proto in self.nm[host].all_protocols():
+                lport = self.nm[host][proto].keys()
                 for port in lport:
-                    state = nm[host][proto][port]['state']
-                    if host not in unfiltered_hosts:
-                        unfiltered_hosts.append(host)
-                    print(f'   Port : {port}\tstatus  {state}')
-            
+                    state = self.nm[host][proto][port]['state']
+                    if state == 'open':
+                        if host not in unfiltered_hosts:
+                            unfiltered_hosts.append(host)
         used_hosts = unfiltered_hosts[0:5] if (len(unfiltered_hosts) > 5 ) else unfiltered_hosts
         with open("unfilter_hosts.txt","w") as f:
             for host in used_hosts:
                 f.write(host+"\n")
         return "-iL ./unfilter_hosts.txt"
 
-       
+    def light_scan(self,addresses,ommit_active=False):
+        print("\nDNS mapping result")
+        mapped_ip = self.dns_map(addresses)
+        print("*",self.get_command())
+        
+        for ip,name in mapped_ip.items():
+            print(ip,"-",name)
+        if len(mapped_ip) == 0:
+            print("No hostname found")
+        print("Hosts mapped:",len(mapped_ip))
+        file_flag = ""
+        if not ommit_active:
+            print("\nScanning active hosts")    
+            active_hosts,file_flag = self.active_map(addresses)
+            print("*",self.get_command())
+            print("Active list")
+            for ip in active_hosts:
+                print(ip)
+            print("Active count:",len(active_hosts))
+        else:
+            file_flag = addresses
+        print("\nPort scan")
+        nonfilter_file_flag = self.port_scan(file_flag)
+        print("*",self.get_command())
+        self.show_ports()
+        return nonfilter_file_flag
+    
+    def deep_scan(self,address):
+        print("\nOS & Version scan")
+        self.os_version_scan(address)
+        print("*",self.get_command())
+        self.show_os_ver_scan()
 
-    def advanced_scan(self,addresses):
-        nm = nmap.PortScanner()
-        nm.scan(addresses,arguments="-O -sV")
+    def show_ports(self):
+        for host in self.nm.all_hosts():
+            print(" Address :",host)
+            for proto in self.nm[host].all_protocols():
+                print('  Protocol : ',proto)
+                lport = self.nm[host][proto].keys()
+                for port in lport:
+                    state = self.nm[host][proto][port]['state']
+                    print(f'   Port : {port}\tstatus  {state}')
 
-        print("\n*",nm.command_line())
-        print("OS and Version scan")
-        for host in nm.all_hosts():
-            print(host,nm[host]['osmatch'],nm[host]['vendor'])
-            for proto in nm[host].all_protocols():
-                port_keys = nm[host][proto].keys()
+    def get_command(self):
+        return self.nm.command_line()
+
+    def os_version_scan(self,addresses):
+        self.nm.scan(addresses,arguments="-O -sV")
+    
+    def show_os_ver_scan(self):
+        for host in self.nm.all_hosts():
+            print(" ")
+            print(host)
+            print(" OS Name",self.nm[host]['osmatch'][0]['name'])
+            for proto in self.nm[host].all_protocols():
+                port_keys = self.nm[host][proto].keys()
                 for port in port_keys:
-                    lport = nm[host][proto][port]
+                    lport = self.nm[host][proto][port]
                     print(port,lport['product'],lport['version'])
+                    print(f'   Port:{port}\tApp:"{lport["product"]}"\tVer:{lport["version"]}')
+
 
     def isp_scan(self,addresses):
         ...
@@ -89,6 +125,7 @@ class NetworkMapper:
         classB = IPv4Network(("172.16.0.0", "255.240.0.0")) 
         classC = IPv4Network(("192.168.0.0", "255.255.0.0"))
         ip_classes = {classA:8,classB:16,classC:24}
+        ip = IPv4Address(ip)
         for ip_class,mask in ip_classes.items():
             if ip in ip_class:
                 return mask
